@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "watcher": {
+      "commandName": "Project",
+      "commandLineArgs": "c:\\tmp\\q.txt 1000"
+    }
+  }
+}

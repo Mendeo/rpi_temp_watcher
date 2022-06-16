@@ -18,6 +18,7 @@
 */
 using System.Net.Mail;
 using System.Net;
+using System.Diagnostics;
 
 const int PAUSE_TIME = 30000;
 const string RPI_TEMP_PROCESS = "vcgencmd";
@@ -32,6 +33,8 @@ fso.Mode = FileMode.Open;
 fso.Options = FileOptions.SequentialScan;
 StreamReader sr = new StreamReader(fileToRead, fso);
 */
+Process currentProcess = Process.GetCurrentProcess();
+bool isRunnigAsService = currentProcess.SessionId == currentProcess.Id;
 
 string[] emailData;
 try
@@ -138,11 +141,28 @@ void sendEmail(double? tC)
 	try
 	{
 		client.Send(msg);
-		Console.WriteLine(DateTime.Now.ToLongTimeString() + ": Message sent successfully!");
+		string logMsg = "Message sent successfully!";
+		if (isRunnigAsService)
+		{
+			Console.WriteLine(logMsg);
+		}
+		else
+		{
+			DateTime dateNow = DateTime.Now;
+			Console.WriteLine(dateNow.ToShortDateString() + ", " + dateNow.ToLongTimeString() + ": " + logMsg);
+		}
 	}
 	catch(Exception ex)
 	{
-		Console.WriteLine(DateTime.Now.ToLongTimeString() + ": " + ex.Message);
+		if (isRunnigAsService)
+		{
+			Console.WriteLine(ex.Message);
+		}
+		else
+		{
+			DateTime dateNow = DateTime.Now;
+			Console.WriteLine(dateNow.ToShortDateString() + ", " + dateNow.ToLongTimeString() + ": " + ex.Message);
+		}
 	}
 	finally
 	{
@@ -154,7 +174,7 @@ string? executeCommand(string procName, string argsString)
 {
 	try
 	{
-		System.Diagnostics.ProcessStartInfo procStartInfo = new System.Diagnostics.ProcessStartInfo(procName);
+		ProcessStartInfo procStartInfo = new ProcessStartInfo(procName);
 		// The following commands are needed to redirect the standard output.
 		// This means that it will be redirected to the Process.StandardOutput StreamReader.
 		procStartInfo.RedirectStandardOutput = true;
@@ -163,7 +183,7 @@ string? executeCommand(string procName, string argsString)
 		procStartInfo.CreateNoWindow = true;
 		procStartInfo.Arguments = argsString;
 		// Now we create a process, assign its ProcessStartInfo and start it
-		System.Diagnostics.Process proc = new System.Diagnostics.Process();
+		Process proc = new Process();
 		proc.StartInfo = procStartInfo;
 		proc.Start();
 		// Get the output into a string

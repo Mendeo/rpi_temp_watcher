@@ -78,6 +78,7 @@ foreach (string line in emailData)
 	}
 	if (EMAIL != null && PASSWORD != null && SMTP_SERVER != null && !double.IsNaN(MIN_TEMP) && !double.IsNaN(MAX_TEMP)) break;
 }
+if (MAX_TEMP <= MIN_TEMP) throw new Exception("MAX_TEMP must be greater then MIN_TEMP!");
 if (EMAIL == null || PASSWORD == null || SMTP_SERVER == null || double.IsNaN(MIN_TEMP) || double.IsNaN(MAX_TEMP)) throw new Exception("Error in configuration file");
 
 Console.WriteLine("EMAIL: " + EMAIL);
@@ -116,8 +117,8 @@ while(true)
 void sendEmail(double? tC)
 {
 	if (tC is null) return;
-	const string SUBJECT = "Предупреждение о перегреве!";
-	string BODY = "Температура процессора превысила " + MAX_TEMP.ToString() + "° и сейчас равна " + tC.ToString() + "°!";
+	const string SUBJECT = "Overheat warning!";
+	string BODY = "CPU temperature exceeded " + MAX_TEMP.ToString() + "° and now equal " + tC.ToString() + "°!";
 	const bool NEED_SSL = true;
 
 	SmtpClient client = new SmtpClient(SMTP_SERVER);
@@ -128,7 +129,7 @@ void sendEmail(double? tC)
 	try
 	{
 		client.Send(msg);
-		Console.WriteLine(DateTime.Now.ToLongDateString() + "Сообщение отправлено успешно!");
+		Console.WriteLine(DateTime.Now.ToLongDateString() + "Message sent successfully!");
 	}
 	catch(Exception ex)
 	{

@@ -51,35 +51,43 @@ string? SMTP_SERVER = null;
 double MAX_TEMP = double.NaN;
 double MIN_TEMP = double.NaN;
 
-foreach (string line in emailData)
+try
 {
-	string[] aux = line.Split('=');
-	string test = aux[0].Trim().ToUpper();
-	string data = aux[1].Replace("\r", String.Empty).Trim();
-	if (test.Equals("EMAIL"))
+	foreach (string line in emailData)
 	{
-		EMAIL = data;
+		string[] aux = line.Split('=');
+		string test = aux[0].Trim().ToUpper();
+		string data = aux[1].Replace("\r", String.Empty).Trim();
+		if (test.Equals("EMAIL"))
+		{
+			EMAIL = data;
+		}
+		else if(test.Equals("PASSWORD"))
+		{
+			PASSWORD = data;
+		}
+		else if(test.Equals("SMTP_SERVER"))
+		{
+			SMTP_SERVER = data;
+		}
+		else if (test.Equals("MIN_TEMP"))
+		{
+			if (!double.TryParse(data, out MIN_TEMP)) throw new Exception("Error in cooldown temperature");
+		}
+		else if (test.Equals("MAX_TEMP"))
+		{
+			if (!double.TryParse(data, out MAX_TEMP)) throw new Exception("Error in alarm temperature");
+		}
+		if (EMAIL != null && PASSWORD != null && SMTP_SERVER != null && !double.IsNaN(MIN_TEMP) && !double.IsNaN(MAX_TEMP)) break;
 	}
-	else if(test.Equals("PASSWORD"))
-	{
-		PASSWORD = data;
-	}
-	else if(test.Equals("SMTP_SERVER"))
-	{
-		SMTP_SERVER = data;
-	}
-	else if (test.Equals("MIN_TEMP"))
-	{
-		if (!double.TryParse(data, out MIN_TEMP)) throw new Exception("Error in cooldown temperature");
-	}
-	else if (test.Equals("MAX_TEMP"))
-	{
-		if (!double.TryParse(data, out MAX_TEMP)) throw new Exception("Error in alarm temperature");
-	}
-	if (EMAIL != null && PASSWORD != null && SMTP_SERVER != null && !double.IsNaN(MIN_TEMP) && !double.IsNaN(MAX_TEMP)) break;
+	if (MAX_TEMP <= MIN_TEMP) throw new Exception("MAX_TEMP must be greater then MIN_TEMP!");
+	if (EMAIL == null || PASSWORD == null || SMTP_SERVER == null || double.IsNaN(MIN_TEMP) || double.IsNaN(MAX_TEMP)) throw new Exception("Error in configuration file");
 }
-if (MAX_TEMP <= MIN_TEMP) throw new Exception("MAX_TEMP must be greater then MIN_TEMP!");
-if (EMAIL == null || PASSWORD == null || SMTP_SERVER == null || double.IsNaN(MIN_TEMP) || double.IsNaN(MAX_TEMP)) throw new Exception("Error in configuration file");
+catch (Exception e)
+{
+	Console.WriteLine(e.Message);
+	Environment.Exit(1);
+}
 
 Console.WriteLine("EMAIL: " + EMAIL);
 Console.WriteLine("Alarm CPU temperature is " + MAX_TEMP.ToString() + "°C");
@@ -163,6 +171,7 @@ string? executeCommand(string procName, string argsString)
 	catch (Exception ex)
 	{
 		Console.WriteLine(ex.Message);
+		Environment.Exit(2);
 		return null;
 	}
 }

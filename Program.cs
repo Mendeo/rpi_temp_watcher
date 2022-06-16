@@ -118,6 +118,7 @@ while(true)
 	else if (alreadySent && tC <= MIN_TEMP)
 	{
 		alreadySent = false;
+		Console.WriteLine("CPU cooled down.");
 	}
 	Thread.Sleep(PAUSE_TIME);
 }
@@ -137,11 +138,11 @@ void sendEmail(double? tC)
 	try
 	{
 		client.Send(msg);
-		Console.WriteLine(DateTime.Now.ToLongDateString() + "Message sent successfully!");
+		Console.WriteLine(DateTime.Now.ToLongTimeString() + ": Message sent successfully!");
 	}
 	catch(Exception ex)
 	{
-		Console.WriteLine(DateTime.Now.ToLongDateString() + " " + ex.Message);
+		Console.WriteLine(DateTime.Now.ToLongTimeString() + ": " + ex.Message);
 	}
 	finally
 	{

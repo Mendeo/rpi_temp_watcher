@@ -16,3 +16,21 @@ MIN_TEMP = 67
 * SMTP_SERVER: указывается адрес SMTP сервера;
 * MAX_TEMP: температура, при которой отсылается e-mail с предупреждением
 * MIN_TEMP: температура, при которой снова начинается мониторинг температуры после предыдущего предупреждения.
+
+Для автоматического запуска программы при старте системы можно создать systemd юнит. Пример файла watcher.service приведён ниже:
+
+```bash
+[Unit]
+Description=Watching for system parameters and sending email if warnings
+After=network.target
+
+[Service]
+User=watcher
+Type=simple
+ExecStart=/usr/local/bin/dotnet /usr/local/lib/rpi_temp_watcher/watcher.dll
+
+[Install]
+WantedBy=multi-user.target
+```
+
+В данном случае исполняемый код помещён в папку /usr/local/lib/rpi_temp_watcher/

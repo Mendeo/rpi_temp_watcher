@@ -5,7 +5,7 @@
 
 Пример конфигурационого файл *config.conf*:
 
-```bash
+```
 EMAIL=example@example.com
 PASSWORD=<password>
 SMTP_SERVER=smtp.example.com
@@ -21,13 +21,13 @@ MIN_TEMP = 67
 
 Для запуска программы в системе должен быть установлен dotnet версии 6.0. Запуск осуществляется следующей командой:
 
-```bash
+```
 dotnet watcher.dll
 ```
 
 Для автоматического запуска программы при старте системы можно создать systemd юнит. Пример файла watcher.service приведён ниже:
 
-```bash
+```
 [Unit]
 Description=Watching for system parameters and sending email if warnings
 After=network.target

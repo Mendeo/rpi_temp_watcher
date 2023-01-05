@@ -1,5 +1,5 @@
 ﻿/*
-    Copyright © 2022 Aleksandr Menyaylo (Александр Меняйло), thesolve@mail.ru, deorathemen@gmail.com
+    Copyright © 2023 Aleksandr Menyaylo (Александр Меняйло), thesolve@mail.ru, deorathemen@gmail.com
 
     This file is part of "rpi_temp_watcher".
 
@@ -23,7 +23,13 @@ using System.Diagnostics;
 const int PAUSE_TIME = 30000;
 const string RPI_TEMP_PROCESS = "vcgencmd";
 const string RPI_TEMP_COMMAND = "measure_temp";
-string EMAIL_SETTINGS_FILE = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.conf");
+const int FAN_GPIO_NUMBER = 17;
+const string GPIO_SELECT_FILE = "/sys/class/gpio/export";
+string FAN_GPIO_DIRECTORY = String.Format("/sys/class/gpio/gpio{0:d}", FAN_GPIO_NUMBER);
+string FAN_GPIO_SET_DIRECTION_FILE = Path.Combine(FAN_GPIO_DIRECTORY, "direction");
+string FAN_GPIO_VALUE_FILE = Path.Combine(FAN_GPIO_DIRECTORY, "value");
+
+string SETTINGS_FILE = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.conf");
 
 /*
 FileStreamOptions fso = new FileStreamOptions();
@@ -33,14 +39,14 @@ fso.Mode = FileMode.Open;
 fso.Options = FileOptions.SequentialScan;
 StreamReader sr = new StreamReader(fileToRead, fso);
 */
-Process currentProcess = Process.GetCurrentProcess();
-bool isRunnigAsService = currentProcess.SessionId == currentProcess.Id;
+Process _currentProcess = Process.GetCurrentProcess();
+bool _isRunnigAsService = _currentProcess.SessionId == _currentProcess.Id;
 
-string[] emailData;
+string[] config;
 try
 {
-	StreamReader sr = new StreamReader(EMAIL_SETTINGS_FILE);
-	emailData = sr.ReadToEnd().Split('\n');
+	StreamReader sr = new StreamReader(SETTINGS_FILE);
+	config = sr.ReadToEnd().Split('\n');
 	sr.Close();
 }
 catch (Exception ex)
@@ -51,51 +57,24 @@ catch (Exception ex)
 string? EMAIL = null;
 string? PASSWORD = null;
 string? SMTP_SERVER = null;
-double MAX_TEMP = double.NaN;
-double MIN_TEMP = double.NaN;
+double EMAIL_MAX_TEMP = double.NaN;
+double EMAIL_MIN_TEMP = double.NaN;
+double FAN_ON_TEMP = double.NaN;
+double FAN_OFF_TEMP = double.NaN;
 
-try
-{
-	foreach (string line in emailData)
-	{
-		string[] aux = line.Split('=');
-		string test = aux[0].Trim().ToUpper();
-		string data = aux[1].Replace("\r", String.Empty).Trim();
-		if (test.Equals("EMAIL"))
-		{
-			EMAIL = data;
-		}
-		else if(test.Equals("PASSWORD"))
-		{
-			PASSWORD = data;
-		}
-		else if(test.Equals("SMTP_SERVER"))
-		{
-			SMTP_SERVER = data;
-		}
-		else if (test.Equals("MIN_TEMP"))
-		{
-			if (!double.TryParse(data, out MIN_TEMP)) throw new Exception("Error in cooldown temperature");
-		}
-		else if (test.Equals("MAX_TEMP"))
-		{
-			if (!double.TryParse(data, out MAX_TEMP)) throw new Exception("Error in alarm temperature");
-		}
-		if (EMAIL != null && PASSWORD != null && SMTP_SERVER != null && !double.IsNaN(MIN_TEMP) && !double.IsNaN(MAX_TEMP)) break;
-	}
-	if (MAX_TEMP <= MIN_TEMP) throw new Exception("MAX_TEMP must be greater then MIN_TEMP!");
-	if (EMAIL == null || PASSWORD == null || SMTP_SERVER == null || double.IsNaN(MIN_TEMP) || double.IsNaN(MAX_TEMP)) throw new Exception("Error in configuration file");
-}
-catch (Exception e)
-{
-	Console.WriteLine(e.Message);
-	Environment.Exit(1);
-}
+bool _alreadySent = false;
+bool _fanIsOn = false;
+
+readConfig();
+GPIO_init();
 
 Console.WriteLine("EMAIL: " + EMAIL);
-Console.WriteLine("Alarm CPU temperature is " + MAX_TEMP.ToString() + "°C");
-Console.WriteLine("Cooldown CPU temperature is " + MIN_TEMP.ToString() + "°C");
-bool alreadySent = false;
+Console.WriteLine("Alarm CPU temperature is " + EMAIL_MAX_TEMP.ToString() + "°C");
+Console.WriteLine("Cooldown CPU temperature is " + EMAIL_MIN_TEMP.ToString() + "°C");
+Console.WriteLine("Fan on temperature is " + FAN_ON_TEMP.ToString() + "°C");
+Console.WriteLine("Fan off temperature is " + FAN_OFF_TEMP.ToString() + "°C");
+
+
 while(true)
 {
 	//string? rawData = sr.ReadLine();
@@ -108,65 +87,280 @@ while(true)
 		Thread.Sleep(PAUSE_TIME);
 		continue;
 	}
-	//Console.WriteLine(tC + "     ");
-	//Console.SetCursorPosition(0, 0);
-	if (tC >= MAX_TEMP)
-	{
-		if (!alreadySent)
-		{
-			sendEmail(tC);
-			alreadySent = true;
-		}
-	}
-	else if (alreadySent && tC <= MIN_TEMP)
-	{
-		alreadySent = false;
-		Console.WriteLine("CPU cooled down.");
-	}
+	checkForAlarm((double)tC);
+	fanControl((double)tC);
 	Thread.Sleep(PAUSE_TIME);
 }
 
+void GPIO_init()
+{
+	StreamWriter sw;
+	if (!File.Exists(FAN_GPIO_SET_DIRECTION_FILE))
+	{
+		try
+		{
+			sw = new StreamWriter(GPIO_SELECT_FILE);
+			sw.WriteLine(FAN_GPIO_NUMBER.ToString());
+			sw.Flush();
+			sw.Close();
+		}
+		catch (Exception ex)
+		{
+			throw new Exception("Can't initialize GPIO: " + ex.Message);
+		}
+		Thread.Sleep(1000);
+		if (File.Exists(FAN_GPIO_SET_DIRECTION_FILE))
+		{
+			setGPIOdirection();
+		}
+		else
+		{
+			throw new Exception("Can't initialize GPIO: Fan GPIO directory does not exist.");
+		}
+	}
+	bool isOut = isOutGPIOdirection();
+	if (!isOut)
+	{
+		setGPIOdirection();
+		isOut = isOutGPIOdirection();
+		if (!isOut) throw new Exception("Can't initialize GPIO: can't set GPIO out mode.");
+	}
+	_fanIsOn = readFanStatus();
+}
+
+bool readFanStatus()
+{
+	StreamReader sr = new StreamReader(FAN_GPIO_VALUE_FILE);
+	try
+	{
+		string? data = sr.ReadLine();
+		const string msg = "value file must contain \"0\" or \"1\"";
+		if (data is null)
+		{
+			throw new Exception(msg);
+		}
+		else if (data.Equals("0"))
+		{
+			return false;
+		}
+		else if (data.Equals("1"))
+		{
+			return true;
+		}
+		else
+		{
+			throw new Exception(msg);
+		}
+	}
+	catch (Exception ex)
+	{
+		throw new Exception("Can't initialize GPIO: " + ex.Message);
+	}
+	finally
+	{
+		sr.Close();
+	}
+}
+
+void setGPIOdirection()
+{
+	try
+	{
+		StreamWriter sw = new StreamWriter(FAN_GPIO_SET_DIRECTION_FILE);
+		sw.WriteLine("out");
+		sw.Flush();
+		sw.Close();
+	}
+	catch (Exception ex)
+	{
+		throw new Exception("Can't initialize GPIO: " + ex.Message);
+	}
+}
+
+bool isOutGPIOdirection()
+{
+	StreamReader sr = new StreamReader(FAN_GPIO_SET_DIRECTION_FILE);
+	try
+	{
+		string? data = sr.ReadLine();
+		const string msg = "direction file must contain \"in\" or \"out\"";
+		if (data is null)
+		{
+			throw new Exception(msg);
+		}
+		else if (data.Equals("out"))
+		{
+			return true;
+		}
+		else if (data.Equals("in"))
+		{
+			return false;
+		}
+		else
+		{
+			throw new Exception(msg);
+		}
+	}
+	catch (Exception ex)
+	{
+		throw new Exception("Can't initialize GPIO: " + ex.Message);
+	}
+	finally
+	{
+		sr.Close();
+	}
+}
+
+void fanToggle(bool isOn)
+{
+	string value = isOn ? "1" : "0";
+	try
+	{
+		StreamWriter fanFile = new StreamWriter(FAN_GPIO_VALUE_FILE);
+		fanFile.WriteLine(value);
+		fanFile.Flush();
+		fanFile.Close();
+	}
+	catch (Exception ex)
+	{
+		throw new Exception("Error while setting GPIO value: " + ex.Message);
+	}
+}
+void fanOn()
+{
+	consoleLog("Fan is on.");
+	fanToggle(true);
+}
+
+void fanOff()
+{
+	consoleLog("Fan is off.");
+	fanToggle(false);
+}
+
+void fanControl(double tC)
+{
+	if (!_fanIsOn && tC >= FAN_ON_TEMP)
+	{
+		_fanIsOn = true;
+		fanOn();
+	}
+	else if (_fanIsOn && tC <= FAN_OFF_TEMP)
+	{
+		_fanIsOn = false;
+		fanOff();
+	}
+}
+
+void checkForAlarm(double tC)
+{
+	//Console.WriteLine(tC + "     ");
+	//Console.SetCursorPosition(0, 0);
+
+	//Checking for alarm
+	if (tC >= EMAIL_MAX_TEMP)
+	{
+		if (!_alreadySent)
+		{
+			sendEmail(tC);
+			_alreadySent = true;
+		}
+	}
+	else if (_alreadySent && tC <= EMAIL_MIN_TEMP)
+	{
+		_alreadySent = false;
+		Console.WriteLine("CPU cooled down.");
+	}
+}
+
+void readConfig()
+{
+	try
+	{
+		foreach (string line in config)
+		{
+			string[] aux = line.Split('=');
+			string test = aux[0].Trim().ToUpper();
+			string data = aux[1].Replace("\r", String.Empty).Trim();
+			if (test.Equals("EMAIL"))
+			{
+				EMAIL = data;
+			}
+			else if (test.Equals("PASSWORD"))
+			{
+				PASSWORD = data;
+			}
+			else if (test.Equals("SMTP_SERVER"))
+			{
+				SMTP_SERVER = data;
+			}
+			else if (test.Equals("EMAIL_MIN_TEMP"))
+			{
+				if (!double.TryParse(data, out EMAIL_MIN_TEMP)) throw new Exception("Error in cooldown temperature");
+			}
+			else if (test.Equals("EMAIL_MAX_TEMP"))
+			{
+				if (!double.TryParse(data, out EMAIL_MAX_TEMP)) throw new Exception("Error in alarm temperature");
+			}
+			else if (test.Equals("FAN_ON_TEMP"))
+			{
+				if (!double.TryParse(data, out FAN_ON_TEMP)) throw new Exception("Error in alarm temperature");
+			}
+			else if (test.Equals("FAN_OFF_TEMP"))
+			{
+				if (!double.TryParse(data, out FAN_OFF_TEMP)) throw new Exception("Error in alarm temperature");
+			}
+			if (EMAIL != null && PASSWORD != null && SMTP_SERVER != null && !double.IsNaN(EMAIL_MIN_TEMP) && !double.IsNaN(EMAIL_MAX_TEMP) && !double.IsNaN(FAN_ON_TEMP) && !double.IsNaN(FAN_OFF_TEMP)) break;
+		}
+		if (EMAIL_MAX_TEMP <= EMAIL_MIN_TEMP) throw new Exception("EMAIL_MAX_TEMP must be greater then EMAIL_MIN_TEMP!");
+		if (FAN_ON_TEMP <= FAN_OFF_TEMP) throw new Exception("FAN_ON_TEMP must be greater then FAN_OFF_TEMP!");
+		if (EMAIL == null || PASSWORD == null || SMTP_SERVER == null || double.IsNaN(EMAIL_MIN_TEMP) || double.IsNaN(EMAIL_MAX_TEMP) || double.IsNaN(FAN_ON_TEMP) || double.IsNaN(FAN_OFF_TEMP)) throw new Exception("Error in configuration file");
+	}
+	catch (Exception e)
+	{
+		Console.WriteLine(e.Message);
+		Environment.Exit(1);
+	}
+}
 void sendEmail(double? tC)
 {
 	if (tC is null) return;
 	const string SUBJECT = "Overheat warning!";
-	string BODY = "CPU temperature exceeded " + MAX_TEMP.ToString() + "° and now equal " + tC.ToString() + "°!";
+	string BODY = "CPU temperature exceeded " + EMAIL_MAX_TEMP.ToString() + "° and now equal " + tC.ToString() + "°!";
 	const bool NEED_SSL = true;
 
 	SmtpClient client = new SmtpClient(SMTP_SERVER);
 	client.EnableSsl = NEED_SSL;
 	client.Credentials = new NetworkCredential(EMAIL, PASSWORD);
+	if (EMAIL is null) throw new Exception("Email address can't be null");
 	MailMessage msg = new MailMessage(EMAIL, EMAIL, SUBJECT, BODY);
 	msg.IsBodyHtml = false;
 	try
 	{
 		client.Send(msg);
 		string logMsg = "Message sent successfully!";
-		if (isRunnigAsService)
-		{
-			Console.WriteLine(logMsg);
-		}
-		else
-		{
-			DateTime dateNow = DateTime.Now;
-			Console.WriteLine(dateNow.ToShortDateString() + ", " + dateNow.ToLongTimeString() + ": " + logMsg);
-		}
+		consoleLog(logMsg);
 	}
 	catch(Exception ex)
 	{
-		if (isRunnigAsService)
-		{
-			Console.WriteLine(ex.Message);
-		}
-		else
-		{
-			DateTime dateNow = DateTime.Now;
-			Console.WriteLine(dateNow.ToShortDateString() + ", " + dateNow.ToLongTimeString() + ": " + ex.Message);
-		}
+		consoleLog(ex.Message);
 	}
 	finally
 	{
 		client.Dispose();
+	}
+}
+
+void consoleLog(string msg)
+{
+	if (_isRunnigAsService)
+	{
+		Console.WriteLine(msg);
+	}
+	else
+	{
+		DateTime dateNow = DateTime.Now;
+		Console.WriteLine(dateNow.ToShortDateString() + ", " + dateNow.ToLongTimeString() + ": " + msg);
 	}
 }
 

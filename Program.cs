@@ -33,8 +33,8 @@ fso.Mode = FileMode.Open;
 fso.Options = FileOptions.SequentialScan;
 StreamReader sr = new StreamReader(fileToRead, fso);
 */
-Process currentProcess = Process.GetCurrentProcess();
-bool isRunnigAsService = currentProcess.SessionId == currentProcess.Id;
+Process _currentProcess = Process.GetCurrentProcess();
+bool _isRunnigAsService = _currentProcess.SessionId == _currentProcess.Id;
 
 string[] emailData;
 try
@@ -141,32 +141,28 @@ void sendEmail(double? tC)
 	try
 	{
 		client.Send(msg);
-		string logMsg = "Message sent successfully!";
-		if (isRunnigAsService)
-		{
-			Console.WriteLine(logMsg);
-		}
-		else
-		{
-			DateTime dateNow = DateTime.Now;
-			Console.WriteLine(dateNow.ToShortDateString() + ", " + dateNow.ToLongTimeString() + ": " + logMsg);
-		}
+		consoleLog("Message sent successfully!");
 	}
 	catch(Exception ex)
 	{
-		if (isRunnigAsService)
-		{
-			Console.WriteLine(ex.Message);
-		}
-		else
-		{
-			DateTime dateNow = DateTime.Now;
-			Console.WriteLine(dateNow.ToShortDateString() + ", " + dateNow.ToLongTimeString() + ": " + ex.Message);
-		}
+		consoleLog(ex.Message);
 	}
 	finally
 	{
 		client.Dispose();
+	}
+}
+
+void consoleLog(string msg)
+{
+	if (_isRunnigAsService)
+	{
+		Console.WriteLine(msg);
+	}
+	else
+	{
+		DateTime dateNow = DateTime.Now;
+		Console.WriteLine(dateNow.ToShortDateString() + ", " + dateNow.ToLongTimeString() + ": " + msg);
 	}
 }
 

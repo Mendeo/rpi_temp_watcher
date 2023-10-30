@@ -35,7 +35,7 @@ After=network.target
 [Service]
 User=watcher
 Type=simple
-ExecStart=/usr/local/bin/dotnet /usr/local/lib/rpi_temp_watcher/watcher.dll
+ExecStart=/usr/bin/dotnet /usr/local/lib/rpi_temp_watcher/watcher.dll
 
 [Install]
 WantedBy=multi-user.target

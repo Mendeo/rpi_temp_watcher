@@ -42,3 +42,9 @@ WantedBy=multi-user.target
 ```
 
 В данном случае исполняемый код помещён в папку /usr/local/lib/rpi_temp_watcher/
+Этой папке даны права на чтение и исполнение пользователю watcher.
+Также, чтобы пользователь watcher мог получать значение температуры необходимо его добавить в группу video.
+
+```bash
+sudo usermod -aG video watcher
+```
